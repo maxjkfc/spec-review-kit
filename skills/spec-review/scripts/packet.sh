@@ -15,13 +15,14 @@ shift
 head="HEAD"
 if [ $# -gt 0 ] && [[ "$1" != --* ]]; then head="$1"; shift; fi
 
-spec_file=""; pr=""; test_cmd=""; out=""
+spec_file=""; pr=""; test_cmd=""; out=""; force=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --spec) spec_file="$2"; shift 2;;
     --pr) pr="$2"; shift 2;;
     --test-cmd) test_cmd="$2"; shift 2;;
     --out) out="$2"; shift 2;;
+    --force) force=1; shift;;
     --) shift; break;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
@@ -43,11 +44,54 @@ packet="$out/packet.md"
 # Keep the lock until bench.sh save/drop: a second packet build must not remove a worktree
 # that active reviewers may still be reading.
 lock="$out/.session.lock"
-if ! mkdir "$lock" 2>/dev/null; then
-  echo "review session already active at $out; run bench.sh drop $out before rebuilding" >&2
+acquire_lock() {
+  if mkdir "$lock" 2>/dev/null; then
+    return 0
+  fi
+  local owner_file="$lock/owner"
+  if [ -f "$owner_file" ]; then
+    local lock_pid lock_started now age
+    lock_pid=$(sed -n 's/^pid=//p' "$owner_file" | head -1)
+    lock_started=$(sed -n 's/^epoch=//p' "$owner_file" | head -1)
+    now=$(date +%s)
+    age=$(( now - ${lock_started:-now} ))
+
+    # Stale heuristics:
+    # 1. Force requested: always override
+    # 2. Hard TTL: older than 8 hours (28800s)
+    # 3. Soft TTL: older than 2 hours (7200s) AND parent pid is dead
+    local is_stale=0
+    if [ "$force" -eq 1 ]; then
+      is_stale=1
+    elif [ "$age" -ge 28800 ]; then
+      is_stale=1
+    elif [ "$age" -ge 7200 ]; then
+      if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+        is_stale=1
+      fi
+    fi
+
+    if [ "$is_stale" -eq 1 ]; then
+      echo "recovering stale review session at $out (age: ${age}s, owner pid: ${lock_pid:-unknown})..." >&2
+      local old_wt="$out/worktree"
+      if [ -d "$old_wt" ]; then
+        if [ "$force" -ne 1 ] && [ -n "$(git -C "$old_wt" status --porcelain 2>/dev/null)" ]; then
+          echo "error: stale worktree at $old_wt has uncommitted changes! Aborting recovery to prevent data loss. Use --force or bench.sh drop to clean." >&2
+          exit 1
+        fi
+        git worktree remove --force "$old_wt" >/dev/null 2>&1 || rm -rf "$old_wt"
+      fi
+      rm -rf "$lock"
+      if mkdir "$lock" 2>/dev/null; then
+        return 0
+      fi
+    fi
+  fi
+  echo "review session already active at $out; run bench.sh drop $out before rebuilding (or pass --force)" >&2
   exit 1
-fi
-printf 'pid=%s\nhead=%s\nstarted=%s\n' "$$" "$(git rev-parse "$head")" "$(date -u +%FT%TZ)" > "$lock/owner"
+}
+acquire_lock
+printf 'pid=%s\nhead=%s\nstarted=%s\nepoch=%s\n' "${PPID:-$$}" "$(git rev-parse "$head")" "$(date -u +%FT%TZ)" "$(date +%s)" > "$lock/owner"
 wt="$out/worktree"
 cleanup_on_error() {
   status=$?

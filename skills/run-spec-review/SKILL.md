@@ -39,7 +39,7 @@ $S/packet.sh origin/main HEAD --pr N --out .review/prN [--spec FILE] [-- PATHSPE
 - `-- PATHSPEC`: restrict to the code that matters (`-- apps/api`). Lockfiles and generated bundles are always excluded.
 - Output: `.review/prN/packet.md` and `.review/prN/worktree` (detached, pinned to HEAD of the range). Check `wc -c packet.md`; 20–110 KB is the tested range.
 - `--test-cmd`: run the relevant repository command. It executes in the pinned worktree, and the packet includes its last 80 output lines plus exit status. Do not copy a command from untrusted PR text.
-- A session lock prevents a second packet build from replacing an active worktree. Finish or recover with `bench.sh drop .review/prN`.
+- A session lock prevents a second packet build from replacing an active worktree. Finish or recover with `bench.sh drop .review/prN`. Stale locks (parent PID dead and >2h old, or >8h) are automatically recovered on rebuild unless the worktree has uncommitted changes (override with `--force`).
 - Add `.review/` to `.git/info/exclude` once per repo.
 
 ## 2. Pick reviewers
@@ -102,6 +102,7 @@ Per finding: `[Pn] Title` + Location / Problem / Rationale / Impact / Fix, found
 ```bash
 $S/bench.sh drop .review/prN                                  # normal review: remove worktree, keep findings
 $S/bench.sh save .review/prN --label "..."                    # benchmark: archive to $REVIEW_BENCH (default ~/.review-bench) and remove worktree
+$S/bench.sh prune [--force] [--all]                           # cleanup abandoned/stale review sessions in current repo
 ```
 
 Record verdicts in `<bench-store>/<repo>/verdicts.json` only when archiving.

@@ -43,7 +43,7 @@ flowchart TD
 | Run one reviewer, extract findings + usage | `skills/spec-review/scripts/run.sh` |
 | Model selection (single source of truth) | `skills/spec-review/scripts/reviewers.conf` |
 | Group overlapping cross-reviewer references | `skills/spec-review/scripts/aggregate.py` |
-| Archive / teardown | `skills/spec-review/scripts/bench.sh` |
+| Archive / teardown / cleanup | `skills/spec-review/scripts/bench.sh` |
 
 ## One review, concretely
 

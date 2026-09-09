@@ -23,7 +23,7 @@ Reviewers may not invent requirements. A finding without `spec_ref`, `code_ref`,
 | `skills/spec-review/scripts/run.sh` | Run one Pi reviewer over a packet; writes `<model>.findings.json` + `.usage.json`. |
 | `skills/spec-review/scripts/aggregate.py` | Conservatively group cross-reviewer findings whose code ranges overlap; the main agent decides whether they are true duplicates. |
 | `skills/spec-review/scripts/reviewers.conf` | Single source of truth for which models `run-spec-review` dispatches. |
-| `skills/spec-review/scripts/bench.sh` | `save` (archive run to `$REVIEW_BENCH`) / `drop` (remove worktree) / `index`. |
+| `skills/spec-review/scripts/bench.sh` | `save` (archive run to `$REVIEW_BENCH`) / `drop` (remove worktree) / `prune` (clean stale sessions) / `index`. |
 | `docs/flow.md` | End-to-end flow diagram and the design decisions behind it. |
 | `skills/run-spec-review/` | Orchestration skill for the main agent: build → dispatch → verify → report → teardown. |
 | `docs/benchmark.md` | 58-run benchmark across 9 PRs (2 private repos) with the reasoning behind the model choices. |
@@ -59,7 +59,7 @@ jq '.findings' .review/pr123/*.findings.json
 $S/bench.sh drop .review/pr123
 ```
 
-`--test-cmd` runs in the pinned worktree and records both the last 80 output lines and the exit status in the packet. A session lock prevents another packet build from replacing that worktree; `bench.sh drop/save` releases it.
+`--test-cmd` runs in the pinned worktree and records both the last 80 output lines and the exit status in the packet. A session lock prevents another packet build from replacing that worktree; `bench.sh drop/save` releases it. Stale sessions (PID dead + >2h old, or >8h) are automatically recovered on subsequent packet builds or via `bench.sh prune` (uncommitted worktree changes are preserved unless `--force` is given).
 
 To swap models, edit `skills/spec-review/scripts/reviewers.conf` (or export `REVIEW_ALWAYS_MODEL=...`/`REVIEW_ESCALATE_MODEL=...` for one run) — nothing else in this repo hardcodes a model id.
 
