@@ -39,6 +39,28 @@ tag=$(git rev-parse --short "$head")
 mkdir -p "$out"
 packet="$out/packet.md"
 
+# One detached worktree per review session, pinned to the head the diff was produced against.
+# Keep the lock until bench.sh save/drop: a second packet build must not remove a worktree
+# that active reviewers may still be reading.
+lock="$out/.session.lock"
+if ! mkdir "$lock" 2>/dev/null; then
+  echo "review session already active at $out; run bench.sh drop $out before rebuilding" >&2
+  exit 1
+fi
+printf 'pid=%s\nhead=%s\nstarted=%s\n' "$$" "$(git rev-parse "$head")" "$(date -u +%FT%TZ)" > "$lock/owner"
+wt="$out/worktree"
+cleanup_on_error() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    [ -d "$wt" ] && git worktree remove --force "$wt" >/dev/null 2>&1 || true
+    rm -rf "$lock"
+  fi
+  exit "$status"
+}
+trap cleanup_on_error EXIT
+[ ! -e "$wt" ] || { echo "unexpected existing worktree at $wt; run bench.sh drop $out" >&2; exit 1; }
+git worktree add --detach --quiet "$wt" "$head"
+
 {
   echo "# Review Packet"
   echo
@@ -90,17 +112,19 @@ packet="$out/packet.md"
   if [ -n "$test_cmd" ]; then
     echo "command: $test_cmd"
     echo '```'
-    bash -c "$test_cmd" 2>&1 | tail -n 80 || true
+    test_log=$(mktemp)
+    test_status=0
+    (cd "$wt" && bash -c "$test_cmd") >"$test_log" 2>&1 || test_status=$?
+    tail -n 80 "$test_log"
+    rm -f "$test_log"
     echo '```'
+    echo "exit: $test_status"
   else
     echo "(not run)"
   fi
 } > "$packet"
 
-# One detached worktree per review session, pinned to the head the diff was produced against.
-# Every reviewer (read-only) shares it; bench.sh save / packet.sh --drop removes it.
-wt="$out/worktree"
-if [ -d "$wt" ]; then git worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"; fi
-git worktree add --detach --quiet "$wt" "$head"
 
+
+trap - EXIT
 echo "$packet"

@@ -66,12 +66,15 @@ case "$cmd" in
     done
     rm -f "$src"/*.stderr "$src"/*.log
     [ -d "$src/worktree" ] && git worktree remove --force "$src/worktree" >/dev/null 2>&1
+    rm -rf "$src/.session.lock"
+    git worktree prune
     echo "saved $n runs -> $dest"
     ;;
   drop)
     # End a review session without archiving: remove the worktree, keep findings in place.
     src="${1:-}"; [ -d "$src" ] || { echo "usage: bench.sh drop .review/<pr>" >&2; exit 2; }
     [ -d "$src/worktree" ] && git worktree remove --force "$src/worktree" >/dev/null 2>&1
+    rm -rf "$src/.session.lock"
     git worktree prune
     echo "dropped worktree for $src"
     ;;

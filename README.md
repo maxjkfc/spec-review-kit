@@ -21,6 +21,7 @@ Reviewers may not invent requirements. A finding without `spec_ref`, `code_ref`,
 | `skills/spec-review/` | Reviewer-side contract (`SKILL.md`), minimal system prompt, and scripts. Loaded into the Pi reviewer only. |
 | `skills/spec-review/scripts/packet.sh` | Build the packet and the session worktree. |
 | `skills/spec-review/scripts/run.sh` | Run one Pi reviewer over a packet; writes `<model>.findings.json` + `.usage.json`. |
+| `skills/spec-review/scripts/aggregate.py` | Conservatively group cross-reviewer findings whose code ranges overlap; the main agent decides whether they are true duplicates. |
 | `skills/spec-review/scripts/reviewers.conf` | Single source of truth for which models `run-spec-review` dispatches. |
 | `skills/spec-review/scripts/bench.sh` | `save` (archive run to `$REVIEW_BENCH`) / `drop` (remove worktree) / `index`. |
 | `docs/flow.md` | End-to-end flow diagram and the design decisions behind it. |
@@ -30,7 +31,7 @@ Reviewers may not invent requirements. A finding without `spec_ref`, `code_ref`,
 
 ## Install
 
-Requires [`pi`](https://github.com/badlogic/pi-mono) ≥ 0.85, `git`, `jq`, `gh` (optional, for `--pr`).
+Requires [`pi`](https://github.com/badlogic/pi-mono) ≥ 0.85, Python ≥ 3.9, `git`, `jq`, `gh` (optional, for `--pr`).
 
 ```bash
 git clone https://github.com/maxjkfc/spec-review-kit ~/code/spec-review-kit
@@ -52,10 +53,13 @@ $S/packet.sh origin/main HEAD --pr 123 --out .review/pr123 [--spec docs/SPEC.md]
 $S/run.sh .review/pr123/packet.md --model "$ALWAYS_MODEL" &
 $S/run.sh .review/pr123/packet.md --model "$ESCALATE_MODEL" &
 wait
+$S/aggregate.py .review/pr123     # -> candidates.json; inspect candidate_duplicate groups before verification
 jq '.findings' .review/pr123/*.findings.json
 # ...verify each finding in .review/pr123/worktree...
 $S/bench.sh drop .review/pr123
 ```
+
+`--test-cmd` runs in the pinned worktree and records both the last 80 output lines and the exit status in the packet. A session lock prevents another packet build from replacing that worktree; `bench.sh drop/save` releases it.
 
 To swap models, edit `skills/spec-review/scripts/reviewers.conf` (or export `REVIEW_ALWAYS_MODEL=...`/`REVIEW_ESCALATE_MODEL=...` for one run) — nothing else in this repo hardcodes a model id.
 

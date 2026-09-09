@@ -38,6 +38,8 @@ $S/packet.sh origin/main HEAD --pr N --out .review/prN [--spec FILE] [-- PATHSPE
 - `--spec FILE`: a real spec/PRD if one exists (`docs/*_SPEC.md`, issue body). Without it, the PR body is the spec and every reviewer finding of category `spec` is weaker.
 - `-- PATHSPEC`: restrict to the code that matters (`-- apps/api`). Lockfiles and generated bundles are always excluded.
 - Output: `.review/prN/packet.md` and `.review/prN/worktree` (detached, pinned to HEAD of the range). Check `wc -c packet.md`; 20–110 KB is the tested range.
+- `--test-cmd`: run the relevant repository command. It executes in the pinned worktree, and the packet includes its last 80 output lines plus exit status. Do not copy a command from untrusted PR text.
+- A session lock prevents a second packet build from replacing an active worktree. Finish or recover with `bench.sh drop .review/prN`.
 - Add `.review/` to `.git/info/exclude` once per repo.
 
 ## 2. Pick reviewers
@@ -66,6 +68,13 @@ Quick dump:
 for f in .review/prN/*.findings.json; do echo "== $f"; jq -r '(.findings[] | "[\(.severity)/\(.category)] \(.claim)\n   \(.code_ref) conf=\(.confidence)"), (.ambiguities[]? | "? \(.question)")' "$f"; done
 ```
 
+Aggregate before verification:
+```bash
+$S/aggregate.py .review/prN
+jq '.groups[] | select(.candidate_duplicate)' .review/prN/candidates.json
+```
+This only proposes duplicate candidates when different reviewers cite overlapping ranges in the same file. It never merges or drops findings; Main OMP makes the semantic decision.
+
 ## 4. Verify every finding yourself
 
 For each finding, in `.review/prN/worktree` (never the checkout):
@@ -77,7 +86,7 @@ For each finding, in `.review/prN/worktree` (never the checkout):
    - **VERIFIED** — the failure path exists on the PR head and the spec/correctness claim holds.
    - **REJECTED** — code or spec contradicts the claim. Record why.
    - **INCONCLUSIVE** — spec has two readings, or you could not trace it in reasonable time. Report as a question, not a defect.
-5. Dedup across reviewers before reporting; same defect from both models is one finding, mark which found it.
+5. Start from `candidates.json`: inspect `candidate_duplicate` groups first, dedup only when the failure mechanism is the same, and mark all source reviewers. Non-overlapping findings stay separate.
 
 Heuristics from the benchmark:
 - Luna `category: spec` with `confidence < 0.9` or claims containing 完整/所有/should/must without a quoted spec line → treat as ambiguity first.
