@@ -43,14 +43,17 @@ Inside the repo under review:
 
 ```bash
 S=~/.pi/agent/skills/spec-review/scripts
+set -a; source "$S/reviewers.conf"; set +a   # single source of truth for model ids
 $S/packet.sh origin/main HEAD --pr 123 --out .review/pr123 [--spec docs/SPEC.md] [-- apps/api]
-$S/run.sh .review/pr123/packet.md --model openai-codex/gpt-5.6-luna &
-$S/run.sh .review/pr123/packet.md --model anthropic/claude-sonnet-5 &
+$S/run.sh .review/pr123/packet.md --model "$ALWAYS_MODEL" &
+$S/run.sh .review/pr123/packet.md --model "$ESCALATE_MODEL" &
 wait
 jq '.findings' .review/pr123/*.findings.json
 # ...verify each finding in .review/pr123/worktree...
 $S/bench.sh drop .review/pr123
 ```
+
+To swap models, edit `skills/spec-review/scripts/reviewers.conf` (or export `REVIEW_ALWAYS_MODEL=...`/`REVIEW_ESCALATE_MODEL=...` for one run) — nothing else in this repo hardcodes a model id.
 
 Or just tell your main agent "review PR 123" once the skill is installed; `skills/run-spec-review/SKILL.md` is the full procedure.
 

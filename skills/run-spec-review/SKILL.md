@@ -13,9 +13,12 @@ Evidence for this design: `docs/benchmark.md (in spec-review-kit)` (58 runs, 9 P
 
 ```bash
 S=~/.pi/agent/skills/spec-review/scripts
-pi auth check --provider openai-codex --json   # Luna
-pi auth check --provider anthropic --json      # Sonnet
+set -a; source "$S/reviewers.conf"; set +a   # -> $ALWAYS_MODEL, $ESCALATE_MODEL
+pi auth check --provider "${ALWAYS_MODEL%%/*}" --json
+pi auth check --provider "${ESCALATE_MODEL%%/*}" --json
 ```
+
+Model ids live in one place: `spec-review/scripts/reviewers.conf`. Never hardcode a model id anywhere else in this flow — edit that file (or export `REVIEW_ALWAYS_MODEL`/`REVIEW_ESCALATE_MODEL` for a one-off run) to change models, so a swap is a one-line diff instead of a skill-prose hunt.
 
 Run everything from the repo root of the PR. Working tree may be dirty; reviewers read the session worktree, not the checkout.
 
@@ -41,17 +44,18 @@ $S/packet.sh origin/main HEAD --pr N --out .review/prN [--spec FILE] [-- PATHSPE
 
 | Condition | Reviewers |
 |---|---|
-| Always | `openai-codex/gpt-5.6-luna` |
-| Any of: backend / service code, a real spec file, touches config, auth, persistence, payments, concurrency | + `anthropic/claude-sonnet-5` |
-| Pure frontend / docs / tests only | Luna alone |
+| Always | `$ALWAYS_MODEL` |
+| Any of: backend / service code, a real spec file, touches config, auth, persistence, payments, concurrency | + `$ESCALATE_MODEL` |
+| Pure frontend / docs / tests only | `$ALWAYS_MODEL` alone |
 
-Do not add Gemini. Do not run one reviewer twice as a substitute for the second model (Sonnet's runs vary; Luna's are stable).
+Current defaults (`reviewers.conf`): `ALWAYS_MODEL=openai-codex/gpt-5.6-luna`, `ESCALATE_MODEL=anthropic/claude-sonnet-5`. Do not add a third model as a standing reviewer (Gemini Flash was tried and removed — see `docs/benchmark.md`). Do not run one reviewer twice as a substitute for the second model (the escalate model's runs vary; the always model's are stable).
+
 
 ## 3. Run reviewers in parallel
 
 ```bash
-$S/run.sh .review/prN/packet.md --model openai-codex/gpt-5.6-luna &
-$S/run.sh .review/prN/packet.md --model anthropic/claude-sonnet-5 &
+$S/run.sh .review/prN/packet.md --model "$ALWAYS_MODEL" &
+[ -n "${need_escalate:-}" ] && $S/run.sh .review/prN/packet.md --model "$ESCALATE_MODEL" &
 wait
 ```
 
@@ -95,4 +99,4 @@ Record verdicts in `<bench-store>/<repo>/verdicts.json` only when archiving.
 
 ## Not in scope (V1)
 
-Herdr orchestration, risk scoring, Gemini, Sonnet-as-arbiter. See `ANALYSIS.md` §6 for why.
+Herdr orchestration, risk scoring, a third standing reviewer, Sonnet-as-arbiter. See `docs/benchmark.md` §6 for why.
