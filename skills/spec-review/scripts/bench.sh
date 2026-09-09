@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # bench.sh — archive a .review/<pr> directory into the central benchmark store and index it.
-#
 # Usage (inside the repo under review):
 #   bench.sh save .review/pr46 [--label NOTE]
+#   bench.sh drop .review/pr46
+#   bench.sh prune [--force] [--all]
 #   bench.sh index                       # print the index
 #
 # Store layout: $REVIEW_BENCH (default ~/.review-bench)
@@ -66,18 +67,80 @@ case "$cmd" in
     done
     rm -f "$src"/*.stderr "$src"/*.log
     [ -d "$src/worktree" ] && git worktree remove --force "$src/worktree" >/dev/null 2>&1
+    rm -rf "$src/.session.lock"
+    git worktree prune
     echo "saved $n runs -> $dest"
     ;;
   drop)
     # End a review session without archiving: remove the worktree, keep findings in place.
     src="${1:-}"; [ -d "$src" ] || { echo "usage: bench.sh drop .review/<pr>" >&2; exit 2; }
     [ -d "$src/worktree" ] && git worktree remove --force "$src/worktree" >/dev/null 2>&1
+    rm -rf "$src/.session.lock"
     git worktree prune
     echo "dropped worktree for $src"
+    ;;
+  prune)
+    # Scan current repo's .review/* for abandoned or stale sessions
+    force=0
+    prune_all=0
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --force) force=1; shift;;
+        --all) prune_all=1; shift;;
+        *) echo "unknown arg: $1" >&2; exit 2;;
+      esac
+    done
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    if [ -z "$toplevel" ] || [ ! -d "$toplevel/.review" ]; then
+      echo "no .review directory in repository"
+      exit 0
+    fi
+    count=0
+    for sess in "$toplevel/.review"/*; do
+      [ -d "$sess" ] || continue
+      lock="$sess/.session.lock"
+      wt="$sess/worktree"
+      [ -d "$lock" ] || [ -d "$wt" ] || continue
+
+      is_stale=0
+      if [ "$prune_all" -eq 1 ]; then
+        is_stale=1
+      elif [ -f "$lock/owner" ]; then
+        lock_pid=$(sed -n 's/^pid=//p' "$lock/owner" | head -1)
+        lock_started=$(sed -n 's/^epoch=//p' "$lock/owner" | head -1)
+        now=$(date +%s)
+        age=$(( now - ${lock_started:-now} ))
+        if [ "$age" -ge 28800 ]; then
+          is_stale=1
+        elif [ "$age" -ge 7200 ]; then
+          if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+            is_stale=1
+          fi
+        fi
+      elif [ ! -d "$lock" ] && [ -d "$wt" ]; then
+        # Worktree exists with no active lock -> orphaned worktree
+        is_stale=1
+      fi
+
+      if [ "$is_stale" -eq 1 ]; then
+        if [ -d "$wt" ]; then
+          if [ "$force" -ne 1 ] && [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
+            echo "skip $sess: worktree has uncommitted changes (use --force to discard)"
+            continue
+          fi
+          git worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
+        fi
+        rm -rf "$lock"
+        echo "pruned: $sess"
+        count=$((count + 1))
+      fi
+    done
+    git worktree prune
+    echo "pruned $count session(s)"
     ;;
   index)
     jq -r '[.repo,.pr,.run_ts,.harness,.model,(.wall_s//"-"),.turns,.tool_calls,.input,.cacheRead,.output,(.cost//0|tostring|.[0:6]),.findings,.ambiguities,.label]|@tsv' "$store/index.jsonl" \
       | { printf 'repo\tpr\trun\tharness\tmodel\twall\tturns\ttools\tinput\tcacheRead\toutput\tcost\tfind\tamb\tlabel\n'; cat; } | column -t -s $'\t'
     ;;
-  *) echo "usage: bench.sh {save|drop|index} ..." >&2; exit 2;;
+  *) echo "usage: bench.sh {save|drop|prune|index} ..." >&2; exit 2;;
 esac

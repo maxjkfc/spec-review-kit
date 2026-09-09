@@ -19,9 +19,9 @@ flowchart TD
     R1 --> F1["luna.findings.json<br/>{severity,claim,spec_ref,code_ref,evidence,verification,confidence}"]
     R2 --> F2["sonnet.findings.json"]
 
-    F1 --> V["4. Main agent verifies every finding<br/>trace code_ref / run test / check spec_ref, in the worktree"]
-    F2 --> V
-
+    F1 --> A["aggregate.py<br/>group overlapping code_ref ranges; never auto-drop"]
+    F2 --> A
+    A --> V["4. Main agent verifies every finding<br/>trace code_ref / run test / check spec_ref, in the worktree"]
     V --> VER["VERIFIED"]
     V --> REJ["REJECTED"]
     V --> INC["INCONCLUSIVE -> reported as a question, not a finding"]
@@ -42,23 +42,27 @@ flowchart TD
 | Build packet + pinned worktree | `skills/spec-review/scripts/packet.sh` |
 | Run one reviewer, extract findings + usage | `skills/spec-review/scripts/run.sh` |
 | Model selection (single source of truth) | `skills/spec-review/scripts/reviewers.conf` |
-| Archive / teardown | `skills/spec-review/scripts/bench.sh` |
+| Group overlapping cross-reviewer references | `skills/spec-review/scripts/aggregate.py` |
+| Archive / teardown / cleanup | `skills/spec-review/scripts/bench.sh` |
 
 ## One review, concretely
 
 ```bash
 S=~/.pi/agent/skills/spec-review/scripts
 c=$(gh pr view 123 --json mergeCommit -q .mergeCommit.oid)
-$S/packet.sh "$c~1" "$c" --pr 123 --out .review/pr123          # -> packet.md + pinned worktree
+$S/packet.sh "$c~1" "$c" --pr 123 --out .review/pr123 --test-cmd "go test ./..."
 
 set -a; source "$S/reviewers.conf"; set +a
-$S/run.sh .review/pr123/packet.md --model "$ALWAYS_MODEL" &     # Luna, always
-$S/run.sh .review/pr123/packet.md --model "$ESCALATE_MODEL" &   # Sonnet, only for backend/spec'd PRs
+$S/run.sh .review/pr123/packet.md --model "$ALWAYS_MODEL" &     # always
+$S/run.sh .review/pr123/packet.md --model "$ESCALATE_MODEL" &   # backend/spec'd PRs
 wait
+$S/aggregate.py .review/pr123                                  # -> candidates.json
 
 # Main agent verifies every finding inside .review/pr123/worktree, then reports.
 $S/bench.sh drop .review/pr123
 ```
+
+The test command runs inside the pinned worktree. Its final 80 output lines and exit status are embedded in `packet.md`. The session directory remains locked until `bench.sh drop/save`, so another packet build cannot replace a worktree under active reviewers.
 
 ## Design decisions and the evidence behind them
 
@@ -72,4 +76,4 @@ $S/bench.sh drop .review/pr123
 
 ## Deliberately out of scope for V1
 
-Herdr orchestration, a numeric risk-score router, feeding real `--test-cmd` output into the packet, and binding reviewer selection into `omp config` model routing. Reasoning for each is in `benchmark.md` §6.
+Herdr orchestration, a numeric risk-score router, and binding reviewer selection into `omp config` model routing. Reasoning for each is in `benchmark.md` §6.
