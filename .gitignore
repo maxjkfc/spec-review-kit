@@ -1,0 +1,8 @@
+.review/
+*.findings.json
+*.usage.json
+*.jsonl
+!data/index.jsonl
+*.log
+*.stderr
+.DS_Store
