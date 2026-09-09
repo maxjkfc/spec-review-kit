@@ -10,6 +10,8 @@ main agent (omp / claude / any)
   └─ verify      → main agent traces every finding in the pinned worktree → VERIFIED / REJECTED / INCONCLUSIVE
 ```
 
+Full diagram + rationale: [`docs/flow.md`](docs/flow.md).
+
 Reviewers may not invent requirements. A finding without `spec_ref`, `code_ref`, and `evidence` is dropped. Spec with two readings → `ambiguities`, not a finding.
 
 ## Layout
@@ -19,7 +21,9 @@ Reviewers may not invent requirements. A finding without `spec_ref`, `code_ref`,
 | `skills/spec-review/` | Reviewer-side contract (`SKILL.md`), minimal system prompt, and scripts. Loaded into the Pi reviewer only. |
 | `skills/spec-review/scripts/packet.sh` | Build the packet and the session worktree. |
 | `skills/spec-review/scripts/run.sh` | Run one Pi reviewer over a packet; writes `<model>.findings.json` + `.usage.json`. |
+| `skills/spec-review/scripts/reviewers.conf` | Single source of truth for which models `run-spec-review` dispatches. |
 | `skills/spec-review/scripts/bench.sh` | `save` (archive run to `$REVIEW_BENCH`) / `drop` (remove worktree) / `index`. |
+| `docs/flow.md` | End-to-end flow diagram and the design decisions behind it. |
 | `skills/run-spec-review/` | Orchestration skill for the main agent: build → dispatch → verify → report → teardown. |
 | `docs/benchmark.md` | 58-run benchmark across 9 PRs (2 private repos) with the reasoning behind the model choices. |
 | `data/index.jsonl` | Per-run usage/cost/findings rows from the benchmark (repos anonymized, findings and packets not included). |
